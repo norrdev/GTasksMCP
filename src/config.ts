@@ -22,6 +22,15 @@ export const config = {
     .filter(Boolean),
 };
 
+/**
+ * OAuth issuer identifier. Must equal the URL the metadata is published under
+ * (RFC 8414), i.e. the bare origin with no trailing slash.
+ */
+export const ISSUER = config.publicUrl.origin;
+
+/** Google redirects here; we forward to the MCP client's redirect URI with our own `iss`. */
+export const GOOGLE_CALLBACK_URL = new URL("/oauth/callback", config.publicUrl).href;
+
 export const GOOGLE_SCOPES = [
   "openid",
   "email",

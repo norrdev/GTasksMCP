@@ -1,10 +1,59 @@
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import { ProxyOAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js";
 import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js";
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
-import { config, GOOGLE_SCOPES } from "./config.js";
+import { config, GOOGLE_CALLBACK_URL, GOOGLE_SCOPES, ISSUER } from "./config.js";
+
+/**
+ * Google's redirect goes to our /oauth/callback, so the MCP client's own
+ * redirect URI and state ride along inside the state we hand to Google.
+ */
+type WrappedState = { r: string; s?: string };
+
+function wrapState(redirectUri: string, state?: string): string {
+  const payload: WrappedState = { r: redirectUri, ...(state !== undefined ? { s: state } : {}) };
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function unwrapState(raw: unknown): WrappedState | undefined {
+  if (typeof raw !== "string") return undefined;
+  try {
+    const v = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as WrappedState;
+    if (typeof v.r !== "string" || (v.s !== undefined && typeof v.s !== "string")) return undefined;
+    // Only ever redirect to a pre-approved client redirect URI.
+    return config.redirectUris.includes(v.r) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * GET /oauth/callback — receives Google's authorization response and relays
+ * code (or error) to the MCP client, stamping our issuer as `iss` (RFC 9207)
+ * instead of Google's.
+ */
+export function oauthCallback(req: Request, res: Response) {
+  const st = unwrapState(req.query.state);
+  if (!st) {
+    res.status(400).type("text").send("Invalid or missing OAuth state");
+    return;
+  }
+  const out = new URL(st.r);
+  const pick = (k: string) => (typeof req.query[k] === "string" ? (req.query[k] as string) : undefined);
+  const code = pick("code");
+  if (code) {
+    out.searchParams.set("code", code);
+  } else {
+    out.searchParams.set("error", pick("error") ?? "server_error");
+    const desc = pick("error_description");
+    if (desc) out.searchParams.set("error_description", desc);
+  }
+  if (st.s !== undefined) out.searchParams.set("state", st.s);
+  out.searchParams.set("iss", ISSUER);
+  res.redirect(out.toString());
+}
 
 const GOOGLE = {
   authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -92,14 +141,14 @@ class GoogleOAuthProvider extends ProxyOAuthServerProvider {
     url.search = new URLSearchParams({
       client_id: client.client_id,
       response_type: "code",
-      redirect_uri: params.redirectUri,
+      redirect_uri: GOOGLE_CALLBACK_URL,
       code_challenge: params.codeChallenge,
       code_challenge_method: "S256",
       scope: GOOGLE_SCOPES.join(" "),
       access_type: "offline",
       prompt: "consent",
       login_hint: config.allowedEmail,
-      ...(params.state ? { state: params.state } : {}),
+      state: wrapState(params.redirectUri, params.state),
     }).toString();
     res.redirect(url.toString());
   }
@@ -108,9 +157,10 @@ class GoogleOAuthProvider extends ProxyOAuthServerProvider {
     client: OAuthClientInformationFull,
     code: string,
     verifier?: string,
-    redirectUri?: string,
+    _redirectUri?: string,
   ) {
-    return super.exchangeAuthorizationCode(client, code, verifier, redirectUri);
+    // Google must see the same redirect_uri it redirected to: our callback.
+    return super.exchangeAuthorizationCode(client, code, verifier, GOOGLE_CALLBACK_URL);
   }
 
   override exchangeRefreshToken(client: OAuthClientInformationFull, refreshToken: string) {

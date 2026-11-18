@@ -19,9 +19,11 @@ Self-hosted remote [MCP](https://modelcontextprotocol.io) server that lets Claud
 
 1. Create a project, enable **Google Tasks API**.
 2. OAuth consent screen: type *External*, add yourself as a test user (or publish the app, otherwise refresh tokens expire after 7 days in "Testing").
-3. Credentials -> *OAuth client ID* -> **Web application**. Authorized redirect URIs:
-   - `https://claude.ai/api/mcp/auth_callback`
-   - `https://claude.com/api/mcp/auth_callback`
+3. Credentials -> *OAuth client ID* -> **Web application**. Authorized redirect URI:
+   - `https://<MCP_DOMAIN>/oauth/callback`
+
+   Google redirects back to this server, which relays the code to Claude with its own
+   issuer as `iss` (RFC 9207); Claude rejects a direct redirect carrying Google's `iss`.
 4. Copy the client id and secret.
 
 ### 2. Server (VPS)
