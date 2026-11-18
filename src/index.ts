@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { config, GOOGLE_SCOPES } from "./config.js";
 import { authProvider } from "./auth.js";
 import { createServer } from "./server.js";
+import { privacyPage } from "./privacy.js";
 
 const app = express();
 app.set("trust proxy", 1); // behind Caddy/Traefik
@@ -51,5 +52,6 @@ app.get("/mcp", notAllowed);
 app.delete("/mcp", notAllowed);
 
 app.get("/healthz", (_req, res) => void res.send("ok"));
+app.get("/privacy", privacyPage);
 
 app.listen(config.port, () => console.log(`google-tasks-mcp listening on :${config.port} (${config.publicUrl.origin})`));
