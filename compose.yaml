@@ -1,0 +1,21 @@
+services:
+  mcp:
+    image: ghcr.io/${GITHUB_REPOSITORY:-OWNER/google-tasks-mcp}:latest
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    expose: ["3000"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      MCP_DOMAIN: ${MCP_DOMAIN:?set MCP_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [mcp]
+
+volumes:
+  caddy_data:
